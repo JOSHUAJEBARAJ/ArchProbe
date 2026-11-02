@@ -1,0 +1,49 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Python environments, caches, and packaging
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
+
+# JavaScript dependencies, builds, and coverage
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Local interview data and downloaded speech models
+data/
+recordings/
+models/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Logs and OS/editor files
+*.log
+.DS_Store
+.idea/
+*.swp
+*.swo
