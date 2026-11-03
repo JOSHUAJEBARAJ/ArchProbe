@@ -8,12 +8,15 @@
 - Before marking a task complete, demonstrate the behavior and explain how it works in your own words.
 - Record significant decisions, problems, and measurements here as we learn. Commit small, working milestones.
 - The assistant may update this checklist when asked; that does not authorize implementing the application.
+- Keep the UI basic and functional: plain controls, readable conversation history, and minimal CSS. Avoid decorative branding, marketing copy, and dashboard layouts.
 
 ## Goal and boundaries
 
-Build a local mock interviewer for mid-level cloud, platform, and DevOps system design interviews. It should listen to your explanation, follow an embedded Excalidraw diagram, ask relevant follow-up questions, and produce evidence-based feedback.
+Build a local mock interviewer for mid-level DevOps and SRE interviews. It should listen to your explanation, follow an embedded Excalidraw diagram, ask relevant follow-up questions, and produce evidence-based feedback.
 
-Start with one scenario: **design a highly available web application**. Add centralized logging and background job processing after the first complete interview works.
+Start with one scenario: **design a CI/CD pipeline for a web application, from a code change to a safe production deployment**. Additional scenarios are deferred until this interview flow works.
+
+Role focus: assess CI/CD design for DevOps/SRE roles, including repository triggers, build/test stages, reproducible artifacts, secrets and pipeline permissions, environment promotion and approvals, deployment strategies, rollback, and pipeline/deployment observability. Probe failed builds, broken deployments, and concurrent changes. Do not require a particular CI platform or cloud provider or reward tool names without explanation. Keep mid-level difficulty as the initial default.
 
 Aim for an initial version in 2–3 weeks, adjusting the schedule to preserve learning. Public hosting, user accounts, billing, screen sharing, video recording, and Kubernetes are outside the initial version.
 
@@ -40,29 +43,48 @@ Learning recap before moving on: explain how a button click calls `fetch`, how F
 
 Learn: subprocesses, JSON-RPC, authentication boundaries, and measuring latency.
 
-- [ ] Confirm the supported local Codex authentication route works with your subscription; keep credentials out of source control and browser code.
-- [ ] From Python, start or connect to Codex app-server and complete one text exchange using its documented protocol.
-- [ ] Verify a second turn retains conversation context and capture request failures or usage-limit errors.
-- [ ] Send a small diagram snapshot and verify the selected model can interpret it. Check diagram JSON input separately.
-- [ ] Run local whisper.cpp on a short recording of your own architecture explanation; inspect technical-term accuracy and processing time.
-- [ ] Make the browser speak a sample question and confirm microphone capture works.
-- [ ] Record observed response times and any setup limitations before committing to the full voice flow.
+- [x] Confirm the supported local Codex authentication route works with your subscription; keep credentials out of source control and browser code.
+- [x] From Python, start or connect to Codex app-server and complete one text exchange using its documented protocol.
+- [x] Verify a second turn retains conversation context and capture request failures or usage-limit errors.
+- [x] Send a small diagram snapshot and verify the selected model can interpret it. Diagram JSON testing is deferred to milestone 4 by agreement.
+- [x] Run local whisper.cpp on a short recording of your own architecture explanation; inspect technical-term accuracy and processing time.
+- [x] Make the browser speak a sample question and confirm microphone capture works.
+- [x] Record observed response times and any setup limitations before committing to the full voice flow.
 
 Done when: reasoning, diagram input, transcription, and speech output each work independently. If subscription access or latency is unsuitable, discuss the trade-off together before changing providers, adding costs, or reducing scope.
+
+Validation checkpoint (2026-11-02): Joshua ran the probes locally and shared successful output. Codex reported ChatGPT authentication with a Plus plan. The Python probe streamed completed responses, continued the same thread, and correctly described the diagram labels and arrow directions while distinguishing unknown replication details. A deliberately invalid thread method returned error -32600, which the probe printed before stopping; the valid method was then restored. Usage-limit, network-failure, and timeout behavior have not been tested.
+
+| Measurement | Observed result |
+| --- | --- |
+| Codex opening question, send to turn completion | 4.39 seconds |
+| Codex diagram response, send to turn completion | 3.82 seconds |
+| Local English audio sample | Approximately 12.5 seconds |
+| Whisper CPU transcription, second run wall time | 2.563 seconds; internal time 2.324 seconds |
+| Whisper CPU transcription, first run wall time | 24.330 seconds; internal time 2.367 seconds; extra delay unexplained |
+
+These are individual observations, not latency guarantees or end-to-end voice measurements. First-token latency has not been measured. The base.en model recognized availability zones, load balancer, replica, and failover in the sample; transcription quality has not been evaluated across multiple recordings.
+
+Setup limitation: the installed Metal backend failed to compile GPU code. Transcription succeeded with `whisper-cli --no-gpu`. Keep CPU mode as the current workaround and measure again during integration.
+
+Joshua also confirmed browser speech output, microphone permission, audio capture, and local playback. Browser audio upload/conversion/transcription and spoken Codex replies are not connected yet. The code remains a feasibility probe, not the interview engine. Diagram JSON and changed-diagram evaluation will be revisited in milestone 4.
 
 ## Milestone 3 — Build a text interview first
 
 Learn: API contracts, Pydantic validation, interview state, and WebSockets.
 
-- [ ] Write the first scenario: prompt, expected discussion areas, and feedback rubric.
-- [ ] Define session states: ready, active, finished; define the messages exchanged with the frontend.
-- [ ] Implement start, answer, and finish behavior, with one Codex conversation per interview.
-- [ ] Build a basic React conversation panel and connect it through WebSockets.
-- [ ] Guide the interview through requirements, architecture, reliability/scaling, and wrap-up.
-- [ ] Handle pending replies, duplicate submissions, disconnects, and model failures with visible status and a safe retry path.
-- [ ] Add focused pytest coverage for session transitions and backend validation using a fake model adapter.
+- [x] Write the CI/CD design scenario: prompt, expected discussion areas, and feedback rubric; ask one question at a time and adapt to the candidate's answers.
+- [x] Define session states: ready, active, finished; define the messages exchanged with the frontend.
+- [x] Implement start, answer, and finish behavior, with one Codex conversation per interview.
+- [x] Build a basic React conversation panel and connect it through WebSockets.
+- [x] Guide the interview through delivery requirements, pipeline architecture, security and failure recovery, and wrap-up.
+- [x] Handle pending replies, duplicate submissions, disconnects, and model failures with visible status and a safe retry path.
+- [x] Add focused backend coverage for session transitions and validation using a fake model adapter (standard-library unittest suite).
+- [ ] Final live acceptance: complete a CI/CD interview, request its new wrap-up, and create a fresh interview without refreshing. Joshua runs this check locally.
 
 Done when: a complete text interview produces relevant follow-up questions, preserves context, and finishes cleanly without requiring voice or a diagram.
+
+Implementation checkpoint (2026-11-03): Joshua verified real multi-turn questions, candidate clarification, ordered browser conversation history, and session ending. The app keeps its basic UI. End interview now requests a concise rubric-based wrap-up in the same Codex conversation, waits for an in-progress response, streams the recap, then closes and cleans up. New interview cleans up a previous session and permits recovery without a refresh. Setup failures, timeouts, duplicate starts, concurrent sockets, premature/blank input, disconnects, cancellation, shutdown, and wrap-up behavior have automated coverage using fake Codex responses. Tests remain in the existing standard-library suite rather than introducing a new framework. The new model-generated wrap-up and fresh-session UI flow still need the final live acceptance check above; no benchmark of feedback quality is claimed. Persistent sessions, detailed scoring, and evidence-linked saved feedback remain in milestone 6. Reconnection to a lost conversation is not supported; recovery creates a new session.
 
 ## Milestone 4 — Make the interviewer understand the whiteboard
 
@@ -70,6 +92,7 @@ Learn: Excalidraw scene data, snapshots, debouncing, and synchronized context.
 
 - [ ] Embed Excalidraw beside the conversation panel.
 - [ ] Read diagram elements, labels, and connector bindings; account for deleted elements and nonessential drawing data.
+- [ ] Validate Codex input from diagram JSON separately from PNG snapshots (deferred from milestone 2).
 - [ ] Associate diagram revisions with interview turns and provide the latest scene summary and snapshot when requesting a follow-up.
 - [ ] Debounce background diagram updates and avoid sending every pointer movement to the model.
 - [ ] Ask the interviewer to distinguish observed components from assumptions and clarify ambiguous diagrams.
@@ -97,7 +120,7 @@ Learn: SQLAlchemy, persistence, rubric-based evaluation, and evidence grounding.
 
 - [ ] Store session metadata, timestamped turns, diagram revisions, and final feedback in SQLite and local files as appropriate.
 - [ ] Restore a completed session for review and provide a way to delete its saved data.
-- [ ] Generate rubric feedback on requirements, scalability, reliability, trade-offs, and communication.
+- [ ] Generate rubric feedback on delivery requirements, build/test and artifact design, security, environment promotion/deployment, rollback/recovery, observability, trade-offs, and communication, limited to areas actually discussed.
 - [ ] Tie each strength or improvement to a transcript turn or diagram revision; acknowledge missing evidence.
 - [ ] Avoid treating one architecture as the only correct answer or presenting scores as hiring predictions.
 - [ ] Test persistence and feedback structure, including an incomplete interview.
@@ -112,7 +135,7 @@ Learn: end-to-end testing, AI evaluation, CI, and explaining engineering decisio
 - [ ] Review whether follow-ups match the current design and feedback references valid evidence; record examples and failures.
 - [ ] Add one Playwright smoke test for the core interview flow with fake AI/audio responses, and run a separate manual check with real integrations.
 - [ ] Add GitHub Actions for backend tests/lint and frontend type checking/build/tests.
-- [ ] Add the remaining two scenarios using the same interview engine.
+- [ ] Complete and evaluate the CI/CD design scenario; additional scenarios remain deferred.
 - [ ] Document architecture, setup, subscription requirements, local data handling, measured latency, evaluation results, and known limitations.
 - [ ] Record a short demo showing a diagram-specific follow-up and the resulting feedback.
 - [ ] Write resume bullets based on implemented behavior and measured results.
@@ -123,13 +146,13 @@ Done when: a fresh local setup can complete an interview using the README, check
 
 | Topic | Current decision or result |
 | --- | --- |
-| Audience | Personal interview practice and portfolio demonstration |
+| Audience | Mid-level DevOps/SRE interview practice and portfolio demonstration |
 | Frontend | React + Vite + TypeScript; Excalidraw |
 | Backend | Python + FastAPI; WebSockets |
 | Storage | SQLite + SQLAlchemy |
-| Reasoning | Local Codex app-server; subscription access must be validated |
-| Voice | Local whisper.cpp + browser SpeechSynthesis; latency must be measured |
-| Next task | Review the milestone 1 request flow, then validate local Codex access in milestone 2 |
+| Reasoning | Local Codex app-server; subscription-backed text and image responses verified |
+| Voice | Local whisper.cpp in CPU mode + browser SpeechSynthesis; components verified independently |
+| Next task | Run the final live milestone 3 wrap-up/new-session check, then begin milestone 4 (Excalidraw) |
 
 ## Later improvements
 
