@@ -107,6 +107,67 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(self.session.id, main.codex_processes)
         self.stop.assert_awaited_once_with(self.process)
 
+    async def test_structured_answers_forward_current_compact_snapshot(self):
+        calls = []
+
+        async def stream(process, thread_id, text, request_id):
+            calls.append((thread_id, text, request_id))
+            yield "Question?"
+
+        self.enterContext(patch.object(main, "stream_turn", stream))
+        client = self.connect()
+        await client.receive()
+        await client.event()
+        await client.event()
+
+        for revision, elements in [
+            (1, [{"id": "git", "type": "text", "text": "Git", "seed": 123}]),
+            (2, []),
+        ]:
+            client.send(json.dumps({
+                "type": "answer", "text": "My current design.",
+                "diagram": {"revision": revision, "elements": elements},
+            }))
+            self.assertEqual((await client.event())["type"], "delta")
+            self.assertEqual((await client.event())["type"], "turn_completed")
+
+        await client.disconnect()
+        first_snapshot = json.loads(calls[1][1].split("data):\n", 1)[1])
+        latest_snapshot = json.loads(calls[2][1].split("data):\n", 1)[1])
+        self.assertEqual(first_snapshot, {
+            "revision": 1, "elements": [{"id": "git", "type": "text", "text": "Git"}],
+        })
+        self.assertEqual(latest_snapshot, {"revision": 2, "elements": []})
+        self.assertEqual([(call[0], call[2]) for call in calls], [
+            ("thread-1", 3), ("thread-1", 4), ("thread-1", 5),
+        ])
+
+    async def test_invalid_structured_answer_allows_retry(self):
+        calls = []
+
+        async def stream(process, thread_id, text, request_id):
+            calls.append(text)
+            yield "Question?"
+
+        self.enterContext(patch.object(main, "stream_turn", stream))
+        client = self.connect()
+        await client.receive()
+        await client.event()
+        await client.event()
+        for answer in [
+            {"type": "answer", "text": "Design", "diagram": {"elements": [], "revision": 0}},
+            {"type": "answer", "text": "   ", "diagram": {"elements": []}},
+            {"type": "answer", "text": "Design", "diagram": {"elements": "invalid"}},
+        ]:
+            client.send(json.dumps(answer))
+            self.assertEqual((await client.event())["type"], "error")
+            self.assertEqual(len(calls), 1)
+        client.send("A valid retry.")
+        self.assertEqual((await client.event())["type"], "delta")
+        self.assertEqual((await client.event())["type"], "turn_completed")
+        await client.disconnect()
+        self.assertEqual(calls[1], "A valid retry.")
+
     async def test_busy_answers_rejected_and_disconnect_cancels_generation(self):
         entered = asyncio.Event()
         cancelled = asyncio.Event()

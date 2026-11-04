@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
 import './App.css'
+import Whiteboard from './Whiteboard'
 
 type ChatMessage = {
   id: string
   role: 'interviewer' | 'candidate'
   text: string
   kind?: 'wrap_up'
+  diagramRevision?: number
 }
 
 function App() {
@@ -32,6 +35,8 @@ function App() {
   const currentReplyIdRef = useRef<string | null>(null)
   const conversationRef = useRef<HTMLOListElement | null>(null)
   const followConversationRef = useRef(true)
+  const diagramRef = useRef<readonly ExcalidrawElement[]>([])
+  const diagramRevisionRef = useRef(0)
 
   useEffect(() => {
     const conversation = conversationRef.current
@@ -167,6 +172,7 @@ async function startInterview() {
 
     const session = await response.json()
     setInterviewId(session.id)
+    diagramRevisionRef.current = 0
     console.log('Created interview:', session)
     setHasStarted(true)
     setConnectionStatus('idle')
@@ -335,14 +341,32 @@ async function startInterview() {
     waitingForReplyRef.current = true
 
     try {
-      socket.send(answer)
+      const revision = diagramRevisionRef.current + 1
+      const message = {
+        type: 'answer',
+        text: answer,
+        diagram: {
+          revision,
+          elements: diagramRef.current.filter(
+            (element) => !element.isDeleted
+          ),
+        },
+      }
+
+      socket.send(JSON.stringify(message))
+      diagramRevisionRef.current = revision
       followConversationRef.current = true
       const replyId = crypto.randomUUID()
       const answerId = crypto.randomUUID()
       currentReplyIdRef.current = replyId
       setMessages((previous) => [
         ...previous,
-        { id: answerId, role: 'candidate', text: answer },
+        {
+          id: answerId,
+          role: 'candidate',
+          text: answer,
+          diagramRevision: revision,
+        },
         { id: replyId, role: 'interviewer', text: '' },
       ])
       setInterviewError('')
@@ -426,6 +450,14 @@ async function startInterview() {
         </button>
       </div>
       <p className="session-status" role="status">Status: {statusLabel}</p>
+      <section>
+        <h2>Architecture diagram</h2>
+        <Whiteboard
+          onDiagramChange={(elements) => {
+            diagramRef.current = elements
+          }}
+        />
+      </section>
 
       <section aria-label="Interview conversation">
         <h2>Conversation</h2>
@@ -443,6 +475,9 @@ async function startInterview() {
           {messages.map((message, index) => (
             <li key={message.id} className={`message message-${message.role}`}>
               <strong>{message.kind === 'wrap_up' ? 'Wrap-up' : message.role === 'interviewer' ? 'Interviewer' : 'You'}</strong>
+              {message.diagramRevision !== undefined && (
+                <small> · Diagram revision {message.diagramRevision}</small>
+              )}
               <p>
                 {message.text || (
                   isResponding && index === messages.length - 1

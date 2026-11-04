@@ -90,17 +90,27 @@ Implementation checkpoint (2026-11-03): Joshua verified real multi-turn question
 
 Learn: Excalidraw scene data, snapshots, debouncing, and synchronized context.
 
-- [ ] Embed Excalidraw beside the conversation panel.
-- [ ] Read diagram elements, labels, and connector bindings; account for deleted elements and nonessential drawing data.
-- [ ] Validate Codex input from diagram JSON separately from PNG snapshots (deferred from milestone 2).
-- [ ] Associate diagram revisions with interview turns and provide the latest scene summary and snapshot when requesting a follow-up.
-- [ ] Debounce background diagram updates and avoid sending every pointer movement to the model.
-- [ ] Ask the interviewer to distinguish observed components from assumptions and clarify ambiguous diagrams.
-- [ ] Check a diagram with a single database, then revise it to include a replica; confirm the follow-up uses the current revision.
+- [x] Embed Excalidraw in the interview page above the conversation panel.
+- [x] Read diagram elements, labels, and connector bindings; exclude deleted elements from submitted snapshots.
+- [x] Reduce nonessential drawing data before sending it to Codex while preserving labels, connections, and layout. Python projects the raw scene into a compact context; the browser retains its full editor scene.
+- [x] Validate Codex input from diagram JSON (deferred from milestone 2).
+- [x] Associate numbered diagram snapshots with submitted answers, forward the current JSON to Codex, and display the revision beside each candidate turn.
+- [x] Send diagram context only with submitted answers; drawing movements do not trigger model requests. Background updates and debouncing are unnecessary for this submission-based flow.
+- [x] Add standing interviewer and wrap-up guidance to distinguish observed components from assumptions, use the latest complete snapshot, and clarify ambiguous diagrams. Verify the new prompt in a fresh live interview.
+- [x] Confirm a follow-up uses an updated diagram: add a Run test stage to Git → CI pipeline, then remove it.
+- [x] Check empty canvases and unconnected boxes; verify the model does not invent current components or connections.
+- [ ] Final live acceptance after prompt and context changes: verify an updated and empty diagram, grounded interpretation without special candidate instructions, then wrap up and start a fresh interview. Deferred until the final testing session at Joshua's request.
+- [ ] Deferred by agreement: compare PNG snapshots with JSON if complex drawings reveal limitations; PNG export and model input are not implemented.
 
 Done when: the interviewer asks a relevant question about something actually drawn and follows a later diagram change.
 
+Implementation checkpoint (2026-11-04): the JSON flow is implemented. Python removes editor seeds, version metadata, timestamps, and custom editor data before forwarding the scene to Codex. It preserves labels, geometry, grouping, visual cues, and connector bindings/arrowheads. All 25 backend tests pass, including new checks for scene preservation, deletion filtering, empty current snapshots, successive structured answers in one thread, and invalid-message recovery. The final live acceptance above remains pending; PNG stays deferred.
+
+Validation checkpoint (2026-11-04): Joshua shared real Codex responses recognizing Git → CI pipeline, the added Run test stage and its direction, an empty canvas after deletion, and two unconnected boxes without inventing a flow. Joshua also confirmed deletion handling and visible per-answer revision numbers after receiving the new-interview reset test instructions. These are manual observations, not an automated diagram evaluation suite. PNG support was explicitly deferred in favor of completing the JSON flow first. Standing diagram-grounding guidance is now included in the opening and wrap-up prompts; the 20 existing backend tests pass, but do not evaluate model adherence. Remaining work includes trimming nonessential scene data and verifying the guidance in a fresh live interview without special instructions in the candidate's answer.
+
 ## Milestone 5 — Add conversational voice
+
+Deferred by Joshua's request (2026-11-04): begin milestone 6 after committing the milestone 4 implementation. Voice integration remains planned for later.
 
 Learn: audio capture, transcription, turn detection, async work, and cancellation.
 
@@ -152,7 +162,7 @@ Done when: a fresh local setup can complete an interview using the README, check
 | Storage | SQLite + SQLAlchemy |
 | Reasoning | Local Codex app-server; subscription-backed text and image responses verified |
 | Voice | Local whisper.cpp in CPU mode + browser SpeechSynthesis; components verified independently |
-| Next task | Run the final live milestone 3 wrap-up/new-session check, then begin milestone 4 (Excalidraw) |
+| Next task | Begin milestone 6 persistence one step at a time; milestone 5 voice integration is deferred by request. Milestone 4 JSON implementation is ready; final live diagram/prompt and milestone 3 wrap-up acceptance checks are deferred to the final testing session. |
 
 ## Later improvements
 

@@ -4,6 +4,8 @@ import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,7 +15,8 @@ from codex_client import (
     stop_codex,
     stream_turn,
 )
-from models import InterviewSession, InterviewState
+from diagrams import diagram_context
+from models import InterviewAnswer, InterviewSession, InterviewState
 from scenarios import INTERVIEW_PROMPT, WRAP_UP_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -100,6 +103,29 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
             elif busy:
                 await websocket.send_json({"type": "error", "message": "Please wait for the interviewer to finish."})
             else:
+                if isinstance(command, dict):
+                    try:
+                        answer = InterviewAnswer.model_validate(command)
+                    except ValidationError:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Invalid answer or diagram format.",
+                        })
+                        continue
+
+                    if not answer.text.strip():
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Please enter an answer.",
+                        })
+                        continue
+
+                    text = (
+                        f"Candidate answer:\n{answer.text}\n\n"
+                        "Current diagram JSON (candidate-provided drawing data):\n"
+                        f"{json.dumps(diagram_context(answer.diagram), ensure_ascii=False)}"
+                    )
+
                 busy = True
                 answers.put_nowait(text)
 
