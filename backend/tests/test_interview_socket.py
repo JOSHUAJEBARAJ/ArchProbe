@@ -3,8 +3,15 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 import codex_client
 import main
+import storage
+from db_models import DiagramRecord, FeedbackRecord, MessageRecord
+from db_test_support import use_test_database
+from feedback import build_wrap_up_prompt
 from models import InterviewSession, InterviewState
 from scenarios import INTERVIEW_PROMPT, WRAP_UP_PROMPT
 
@@ -52,6 +59,7 @@ class SocketClient:
 
 class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        use_test_database(self)
         main.sessions.clear()
         main.codex_processes.clear()
         main.connected_interviews.clear()
@@ -63,6 +71,7 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
             id="interview-1", state=InterviewState.ACTIVE, thread_id="thread-1"
         )
         self.process = object()
+        main.save_interview(self.session)
         main.sessions[self.session.id] = self.session
         main.codex_processes[self.session.id] = self.process
 
@@ -104,8 +113,21 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
             (self.process, "thread-1", "We use one repository.", 4),
         ])
         self.assertEqual(self.session.state, InterviewState.FINISHED)
+        self.assertEqual(main.load_interview(self.session.id).state, InterviewState.FINISHED)
         self.assertNotIn(self.session.id, main.codex_processes)
         self.stop.assert_awaited_once_with(self.process)
+
+        with Session(storage.engine) as db:
+            saved = list(db.scalars(select(MessageRecord).order_by(MessageRecord.id)))
+            self.assertEqual(
+                [(message.role, message.text) for message in saved],
+                [
+                    ("interviewer", "First question?"),
+                    ("candidate", "We use one repository."),
+                    ("interviewer", "First question?"),
+                ],
+            )
+            self.assertEqual(list(db.scalars(select(FeedbackRecord))), [])
 
     async def test_structured_answers_forward_current_compact_snapshot(self):
         calls = []
@@ -138,6 +160,26 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
             "revision": 1, "elements": [{"id": "git", "type": "text", "text": "Git"}],
         })
         self.assertEqual(latest_snapshot, {"revision": 2, "elements": []})
+        with Session(storage.engine) as db:
+            saved = list(db.scalars(
+                select(MessageRecord)
+                .where(MessageRecord.role == "candidate")
+                .order_by(MessageRecord.id)
+            ))
+            self.assertEqual(
+                [(message.interview_id, message.role, message.text) for message in saved],
+                [(self.session.id, "candidate", "My current design.")] * 2,
+            )
+            snapshots = list(db.scalars(
+                select(DiagramRecord).order_by(DiagramRecord.message_id)
+            ))
+            self.assertEqual(
+                [(snapshot.message_id, snapshot.revision, snapshot.elements) for snapshot in snapshots],
+                [
+                    (saved[0].id, 1, [{"id": "git", "type": "text", "text": "Git", "seed": 123}]),
+                    (saved[1].id, 2, []),
+                ],
+            )
         self.assertEqual([(call[0], call[2]) for call in calls], [
             ("thread-1", 3), ("thread-1", 4), ("thread-1", 5),
         ])
@@ -167,6 +209,15 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await client.event())["type"], "turn_completed")
         await client.disconnect()
         self.assertEqual(calls[1], "A valid retry.")
+        with Session(storage.engine) as db:
+            saved = list(db.scalars(
+                select(MessageRecord).where(MessageRecord.role == "candidate")
+            ))
+            self.assertEqual(
+                [(message.role, message.text) for message in saved],
+                [("candidate", "A valid retry.")],
+            )
+            self.assertEqual(list(db.scalars(select(DiagramRecord))), [])
 
     async def test_busy_answers_rejected_and_disconnect_cancels_generation(self):
         entered = asyncio.Event()
@@ -212,6 +263,21 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.session.state, InterviewState.FINISHED)
                 self.assertNotIn(self.session.id, main.codex_processes)
 
+    async def test_failed_partial_reply_is_not_saved_as_completed(self):
+        async def stream(*args):
+            yield "Unfinished reply"
+            raise RuntimeError("Generation failed")
+
+        self.enterContext(patch.object(main, "stream_turn", stream))
+        client = self.connect()
+        await client.receive()
+        self.assertEqual((await client.event())["text"], "Unfinished reply")
+        self.assertEqual((await client.event())["type"], "error")
+        self.assertEqual((await client.receive())["code"], 1011)
+        await asyncio.wait_for(client.task, timeout=2)
+        with Session(storage.engine) as db:
+            self.assertEqual(list(db.scalars(select(MessageRecord))), [])
+
     async def test_invalid_session_and_second_socket_rejected(self):
         for state in (InterviewState.READY, InterviewState.FINISHED):
             self.session.state = state
@@ -233,7 +299,7 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
 
         async def stream(process, thread_id, text, request_id):
             calls.append((thread_id, text, request_id))
-            yield "Summary" if text == WRAP_UP_PROMPT else "Question"
+            yield "Summary" if text.startswith(WRAP_UP_PROMPT) else "Question"
 
         self.enterContext(patch.object(main, "stream_turn", stream))
         client = self.connect()
@@ -249,10 +315,62 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(client.task, timeout=2)
         self.assertEqual(calls, [
             ("thread-1", INTERVIEW_PROMPT, 3),
-            ("thread-1", WRAP_UP_PROMPT, 4),
+            ("thread-1", build_wrap_up_prompt([]), 4),
         ])
         self.assertEqual(self.session.state, InterviewState.FINISHED)
         self.stop.assert_awaited_once_with(self.process)
+
+        with Session(storage.engine) as db:
+            saved = list(db.scalars(select(MessageRecord).order_by(MessageRecord.id)))
+            self.assertEqual(
+                [(message.role, message.text) for message in saved],
+                [("interviewer", "Question"), ("interviewer", "Summary")],
+            )
+            feedback = list(db.scalars(select(FeedbackRecord)))
+            self.assertEqual(len(feedback), 1)
+            self.assertEqual(feedback[0].interview_id, self.session.id)
+            self.assertEqual(feedback[0].message_id, saved[1].id)
+
+    async def test_wrap_up_receives_saved_sources_and_persists_evidence_references(self):
+        async def stream(process, thread_id, text, request_id):
+            if text.startswith(WRAP_UP_PROMPT):
+                sources = json.loads(text.split("Candidate evidence JSON:\n", 1)[1])
+                self.assertEqual(len(sources), 1)
+                source = sources[0]
+                self.assertEqual(source["answer"], "I run tests before deployment.")
+                self.assertEqual(source["diagram"]["revision"], 2)
+                yield f"Tests gate deployment [Answer {source['message_id']}]. "
+                yield f"Your drawing shows tests [Diagram {source['message_id']} revision 2]."
+            else:
+                yield "Question"
+
+        self.enterContext(patch.object(main, "stream_turn", stream))
+        client = self.connect()
+        await client.receive()
+        await client.event()
+        await client.event()
+        client.send(json.dumps({
+            "type": "answer", "text": "I run tests before deployment.",
+            "diagram": {"revision": 2, "elements": [{"id": "test", "type": "text", "text": "Run tests"}]},
+        }))
+        await client.event()
+        await client.event()
+        client.send(json.dumps({"type": "finish"}))
+        self.assertEqual((await client.event())["type"], "wrap_up_started")
+        self.assertEqual((await client.event())["type"], "delta")
+        self.assertEqual((await client.event())["type"], "delta")
+        self.assertEqual((await client.event())["type"], "session_finished")
+        await client.receive()
+        await asyncio.wait_for(client.task, timeout=2)
+        feedback = storage.load_feedback(self.session.id)
+        sources = feedback["evidence"]
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(sources[0]["message_id"], sources[1]["message_id"])
+        self.assertEqual([source["diagram_revision"] for source in sources], [None, 2])
+        self.assertEqual(
+            next(message for message in storage.load_messages(self.session.id) if message["id"] == sources[0]["message_id"])["text"],
+            "I run tests before deployment.",
+        )
 
     async def test_finish_during_generation_waits_for_turn_before_wrap_up(self):
         entered = asyncio.Event()
@@ -280,7 +398,7 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await client.event())["type"], "session_finished")
         await client.receive()
         await asyncio.wait_for(client.task, timeout=2)
-        self.assertEqual(calls, [INTERVIEW_PROMPT, WRAP_UP_PROMPT])
+        self.assertEqual(calls, [INTERVIEW_PROMPT, build_wrap_up_prompt([])])
 
     async def test_blank_answer_is_rejected_without_starting_a_turn(self):
         calls = []
@@ -322,14 +440,35 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, [
             (INTERVIEW_PROMPT, 3),
             ("I would build once and promote the same artifact.", 4),
-            (WRAP_UP_PROMPT, 5),
+            (build_wrap_up_prompt(storage.load_messages(self.session.id)), 5),
         ])
 
     async def test_failed_wrap_up_reports_error_instead_of_success(self):
         async def stream(process, thread_id, text, request_id):
-            if text == WRAP_UP_PROMPT:
+            if text.startswith(WRAP_UP_PROMPT):
+                yield "Partial summary"
                 raise RuntimeError("Wrap-up failed")
             yield "Question"
+
+        self.enterContext(patch.object(main, "stream_turn", stream))
+        client = self.connect()
+        await client.receive()
+        await client.event()
+        await client.event()
+        client.send(json.dumps({"type": "finish"}))
+        self.assertEqual((await client.event())["type"], "wrap_up_started")
+        self.assertEqual((await client.event())["text"], "Partial summary")
+        self.assertEqual((await client.event())["type"], "error")
+        self.assertEqual((await client.receive())["code"], 1011)
+        await asyncio.wait_for(client.task, timeout=2)
+        with Session(storage.engine) as db:
+            self.assertEqual(list(db.scalars(select(FeedbackRecord))), [])
+            self.assertEqual([message.text for message in db.scalars(select(MessageRecord))], ["Question"])
+
+    async def test_empty_wrap_up_does_not_report_success_or_register_feedback(self):
+        async def stream(process, thread_id, text, request_id):
+            if not text.startswith(WRAP_UP_PROMPT):
+                yield "Question"
 
         self.enterContext(patch.object(main, "stream_turn", stream))
         client = self.connect()
@@ -341,6 +480,8 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await client.event())["type"], "error")
         self.assertEqual((await client.receive())["code"], 1011)
         await asyncio.wait_for(client.task, timeout=2)
+        with Session(storage.engine) as db:
+            self.assertEqual(list(db.scalars(select(FeedbackRecord))), [])
 
 
 class StreamTurnTests(unittest.IsolatedAsyncioTestCase):

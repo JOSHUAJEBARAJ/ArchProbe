@@ -6,8 +6,22 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+from storage import (
+    delete_interview,
+    initialize_storage,
+    list_interviews,
+    load_feedback,
+    load_interview,
+    load_messages,
+    mark_interrupted_interviews,
+    save_candidate_answer,
+    save_feedback,
+    save_interview,
+    save_message,
+)
 
 from codex_client import (
     initialize_conversation,
@@ -16,7 +30,8 @@ from codex_client import (
     stream_turn,
 )
 from diagrams import diagram_context
-from models import InterviewAnswer, InterviewSession, InterviewState
+from feedback import build_wrap_up_prompt
+from models import InterviewAnswer, InterviewSession, InterviewState, SavedFeedback, SavedInterview, SavedMessage
 from scenarios import INTERVIEW_PROMPT, WRAP_UP_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -29,6 +44,10 @@ CODEX_TURN_TIMEOUT = 60
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await asyncio.to_thread(initialize_storage)
+    await asyncio.to_thread(mark_interrupted_interviews)
+    sessions.clear()
+
     try:
         yield
     finally:
@@ -51,7 +70,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
-    allow_methods=["GET","POST"],
+    allow_methods=["GET", "POST", "DELETE"],
 )
 
 
@@ -103,6 +122,8 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
             elif busy:
                 await websocket.send_json({"type": "error", "message": "Please wait for the interviewer to finish."})
             else:
+                candidate_text = text
+                diagram_snapshot = None
                 if isinstance(command, dict):
                     try:
                         answer = InterviewAnswer.model_validate(command)
@@ -120,6 +141,9 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
                         })
                         continue
 
+                    candidate_text = answer.text.strip()
+                    diagram_snapshot = answer.diagram
+
                     text = (
                         f"Candidate answer:\n{answer.text}\n\n"
                         "Current diagram JSON (candidate-provided drawing data):\n"
@@ -127,6 +151,14 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
                     )
 
                 busy = True
+
+                await asyncio.to_thread(
+                    save_candidate_answer,
+                    interview_id,
+                    candidate_text,
+                    diagram_snapshot,
+                )
+
                 answers.put_nowait(text)
 
     async def run_conversation():
@@ -136,10 +168,29 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
         wrapping_up = False
         while True:
             if wrapping_up:
+                history = await asyncio.to_thread(load_messages, interview_id)
+                text = build_wrap_up_prompt(history)
                 await websocket.send_json({"type": "wrap_up_started"})
+            reply_parts = []
             async with asyncio.timeout(CODEX_TURN_TIMEOUT):
                 async for delta in stream_turn(process, session.thread_id, text, request_id):
+                    reply_parts.append(delta)
                     await websocket.send_json({"type": "delta", "text": delta})
+
+            reply_text = "".join(reply_parts)
+            if wrapping_up and not reply_text.strip():
+                raise RuntimeError("Codex returned an empty wrap-up")
+
+            if reply_text.strip():
+                if wrapping_up:
+                    await asyncio.to_thread(save_feedback, interview_id, reply_text)
+                else:
+                    await asyncio.to_thread(
+                        save_message,
+                        interview_id,
+                        "interviewer",
+                        reply_text,
+                    )
 
             if wrapping_up:
                 await websocket.send_json({"type": "session_finished"})
@@ -191,22 +242,73 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
         try:
             await stop_codex(process)
         finally:
-            codex_processes.pop(interview_id, None)
-            connected_interviews.discard(interview_id)
-            interview_sockets.pop(interview_id, None)
+            try:
+                await asyncio.to_thread(save_interview, session.model_copy())
+            finally:
+                codex_processes.pop(interview_id, None)
+                connected_interviews.discard(interview_id)
+                interview_sockets.pop(interview_id, None)
 
 @app.post("/interviews", response_model=InterviewSession, status_code=201)
 def create_interview():
     session = InterviewSession(id=str(uuid4()))
+    save_interview(session)
     sessions[session.id] = session
     return session
+
+@app.get("/interviews", response_model=list[SavedInterview])
+def get_saved_interviews():
+    return list_interviews()
+
 
 @app.get("/interviews/{interview_id}", response_model=InterviewSession)
 def get_interview(interview_id: str):
     session = sessions.get(interview_id)
     if session is None:
-        raise HTTPException(status_code=404, detail="Interview not found")
+        session = load_interview(interview_id)
+
+        if session is None:
+            raise HTTPException(status_code=404, detail="Interview not found")
+
+        sessions[interview_id] = session
     return session
+
+@app.get("/interviews/{interview_id}/messages", response_model=list[SavedMessage])
+def get_interview_messages(interview_id: str):
+    get_interview(interview_id)
+    return load_messages(interview_id)
+
+
+@app.get("/interviews/{interview_id}/feedback", response_model=SavedFeedback | None)
+def get_interview_feedback(interview_id: str):
+    get_interview(interview_id)
+    return load_feedback(interview_id)
+
+
+@app.delete("/interviews/{interview_id}", status_code=204)
+async def remove_saved_interview(interview_id: str):
+    lock = start_locks.setdefault(interview_id, asyncio.Lock())
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="Interview is busy. Please try again.")
+
+    async with lock:
+        if (
+            interview_id in codex_processes
+            or interview_id in connected_interviews
+            or interview_id in interview_sockets
+        ):
+            raise HTTPException(status_code=409, detail="End the active interview before deleting it.")
+
+        try:
+            deleted = await asyncio.to_thread(delete_interview, interview_id)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Interview not found")
+
+        sessions.pop(interview_id, None)
+        return Response(status_code=204)
+
 
 @app.post("/interviews/{interview_id}/start", response_model=InterviewSession)
 async def start_interview(interview_id: str):
@@ -235,6 +337,8 @@ async def start_interview(interview_id: str):
             thread_id = await asyncio.wait_for(
                 initialize_conversation(process), timeout=30
             )
+            active_session = session.model_copy(update={"state": InterviewState.ACTIVE, "thread_id": thread_id})
+            await asyncio.to_thread(save_interview, active_session)
         except asyncio.TimeoutError:
             await stop_codex(process)
             raise HTTPException(status_code=504, detail="Codex timed out")
@@ -270,6 +374,9 @@ async def discard_interview(interview_id: str):
             except (RuntimeError, WebSocketDisconnect, OSError):
                 pass
         process = codex_processes.pop(interview_id, None)
-        if process is not None:
-            await stop_codex(process)
+        try:
+            if process is not None:
+                await stop_codex(process)
+        finally:
+            await asyncio.to_thread(save_interview, session.model_copy())
         return session

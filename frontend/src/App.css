@@ -136,6 +136,21 @@ textarea:disabled {
   line-height: 1.5;
 }
 
+.saved-diagram {
+  height: 400px;
+  margin-top: 12px;
+  border: 1px solid #ccc;
+}
+
+button.feedback-reference {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0645ad;
+  font: inherit;
+  text-decoration: underline;
+}
+
 .test-controls {
   margin-top: 28px;
   padding-top: 16px;

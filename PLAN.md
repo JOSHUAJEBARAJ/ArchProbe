@@ -126,16 +126,28 @@ Done when: you can hold a spoken interview while drawing, recover from a failed 
 
 ## Milestone 6 — Save sessions and give useful feedback
 
+Status: complete for the current local text-and-diagram interview flow. Joshua reported successful final checks; broader model-quality evaluation belongs to milestone 7. Voice integration remains deferred in milestone 5.
+
 Learn: SQLAlchemy, persistence, rubric-based evaluation, and evidence grounding.
 
-- [ ] Store session metadata, timestamped turns, diagram revisions, and final feedback in SQLite and local files as appropriate.
-- [ ] Restore a completed session for review and provide a way to delete its saved data.
-- [ ] Generate rubric feedback on delivery requirements, build/test and artifact design, security, environment promotion/deployment, rollback/recovery, observability, trade-offs, and communication, limited to areas actually discussed.
-- [ ] Tie each strength or improvement to a transcript turn or diagram revision; acknowledge missing evidence.
-- [ ] Avoid treating one architecture as the only correct answer or presenting scores as hiring predictions.
-- [ ] Test persistence and feedback structure, including an incomplete interview.
+- [x] Save interview IDs, creation timestamps, lifecycle state, and Codex thread IDs in SQLite.
+- [x] Store accepted candidate answers and completed interviewer replies in order, including final wrap-ups; exclude failed partial replies from completed history.
+- [x] Save diagram snapshots and revisions atomically with their candidate answers, preserving empty canvases and excluding deleted elements.
+- [x] List saved interviews and expose message history, snapshots, and registered final feedback through validated API responses.
+- [x] Review saved conversations, read-only diagram revisions, and final feedback in the browser after a backend restart.
+- [x] Create missing tables automatically and mark leftover active interviews interrupted at startup, preserving saved history.
+- [x] Delete saved interviews, messages, snapshots, feedback, and evidence together; protect active/busy interviews and roll back failed deletes.
+- [x] Request rubric feedback on delivery requirements, build/test/artifacts, security, deployment, recovery, observability, reasoning, and communication, limited to discussed evidence.
+- [x] Supply actual candidate answer IDs and exact diagram revisions to wrap-up generation. Validate references against this interview's sources; expose valid answer/snapshot links and disclose unavailable or absent references.
+- [x] Instruct the interviewer to accept different valid designs, separate missing discussion from demonstrated weaknesses, and avoid invented scores or hiring predictions.
+- [x] Test persistence, feedback storage, invalid references, empty evidence, failed wrap-ups, and deletion with isolated temporary databases.
+- [x] Final user-reported acceptance: evidence-link review, saved history/diagrams/feedback after restarting the backend and refreshing the browser, an interview without candidate answers, and saved-interview deletion.
 
 Done when: restarting the application preserves a completed interview, and the feedback explains what you did well and what to practice next using session evidence.
+
+Validation (2026-11-05): all 59 backend tests, frontend TypeScript, lint, and production build passed. Joshua reported that the live review/restart flow and insufficient-evidence case work. These user reports are distinct from the assistant's automated checks; no independent claim-by-claim model-quality audit is claimed. Reference validation establishes source ownership and exact revisions, not semantic correctness. Milestone 7 will evaluate whether claims actually follow from their cited evidence across weak, strong, ambiguous, and revised designs.
+
+Scope: older feedback is not retroactively assigned citations. Stored diagrams contain scene elements, not embedded image files. Missing tables are created automatically; changes to existing columns still require migrations. Vite's existing large drawing-dependency chunk warning remains a portfolio optimization consideration.
 
 ## Milestone 7 — Verify and prepare the portfolio demo
 
@@ -162,7 +174,7 @@ Done when: a fresh local setup can complete an interview using the README, check
 | Storage | SQLite + SQLAlchemy |
 | Reasoning | Local Codex app-server; subscription-backed text and image responses verified |
 | Voice | Local whisper.cpp in CPU mode + browser SpeechSynthesis; components verified independently |
-| Next task | Begin milestone 6 persistence one step at a time; milestone 5 voice integration is deferred by request. Milestone 4 JSON implementation is ready; final live diagram/prompt and milestone 3 wrap-up acceptance checks are deferred to the final testing session. |
+| Next task | Milestone 6 is complete for the current text/diagram flow. Return to deferred milestone 5 voice integration, then milestone 7 evaluation, CI, documentation, and portfolio preparation. |
 
 ## Later improvements
 

@@ -6,11 +6,13 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 import main
+from db_test_support import use_test_database
 from models import InterviewSession, InterviewState
 
 
 class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        self.database_engine = use_test_database(self)
         main.sessions.clear()
         main.codex_processes.clear()
         main.start_locks.clear()
@@ -48,6 +50,9 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
             result = await main.start_interview(session.id)
             self.assertEqual(result.state, InterviewState.ACTIVE)
             self.assertEqual(result.thread_id, "thread-1")
+            saved = main.load_interview(session.id)
+            self.assertEqual(saved.state, InterviewState.ACTIVE)
+            self.assertEqual(saved.thread_id, "thread-1")
             self.assertIs(main.codex_processes[session.id], process)
             with self.assertRaises(HTTPException) as raised:
                 await main.start_interview(session.id)
@@ -125,11 +130,53 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
             second = await main.discard_interview(session.id)
         self.assertIs(first, second)
         self.assertEqual(first.state, InterviewState.FINISHED)
+        self.assertEqual(main.load_interview(session.id).state, InterviewState.FINISHED)
         self.assertNotIn(session.id, main.codex_processes)
         stop.assert_awaited_once_with(process)
         with self.assertRaises(HTTPException) as raised:
             await main.start_interview(session.id)
         self.assertEqual(raised.exception.status_code, 409)
+
+    async def test_finished_metadata_survives_memory_and_connection_reset(self):
+        session = main.create_interview()
+        with patch.object(main, "start_codex", AsyncMock(return_value=object())), patch.object(main, "initialize_conversation", AsyncMock(return_value="saved-thread")), patch.object(main, "stop_codex", AsyncMock()):
+            await main.start_interview(session.id)
+            await main.discard_interview(session.id)
+
+        main.sessions.clear()
+        self.database_engine.dispose()
+        restored = main.get_interview(session.id)
+        self.assertEqual(restored.id, session.id)
+        self.assertEqual(restored.state, InterviewState.FINISHED)
+        self.assertEqual(restored.thread_id, "saved-thread")
+
+    async def test_discard_saves_finished_even_if_process_cleanup_fails(self):
+        session = main.create_interview()
+        session.state = InterviewState.ACTIVE
+        main.codex_processes[session.id] = object()
+        with patch.object(main, "stop_codex", AsyncMock(side_effect=RuntimeError("stop failed"))):
+            with self.assertRaises(RuntimeError):
+                await main.discard_interview(session.id)
+        self.assertNotIn(session.id, main.codex_processes)
+        self.assertEqual(main.load_interview(session.id).state, InterviewState.FINISHED)
+
+    async def test_startup_recovers_active_metadata_and_rejects_resuming_it(self):
+        stale = main.create_interview()
+        stale.state = InterviewState.ACTIVE
+        stale.thread_id = "old-thread"
+        main.save_interview(stale)
+
+        start = AsyncMock()
+        with patch.object(main, "start_codex", start):
+            async with main.lifespan(main.app):
+                restored = main.get_interview(stale.id)
+                self.assertIsNot(restored, stale)
+                self.assertEqual(restored.state, InterviewState.INTERRUPTED)
+                self.assertEqual(restored.thread_id, "old-thread")
+                with self.assertRaises(HTTPException) as raised:
+                    await main.start_interview(stale.id)
+                self.assertEqual(raised.exception.status_code, 409)
+        start.assert_not_awaited()
 
     async def test_shutdown_attempts_all_process_cleanup(self):
         first, second = object(), object()
