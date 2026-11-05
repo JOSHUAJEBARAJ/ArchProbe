@@ -12,8 +12,8 @@ import storage
 from db_models import DiagramRecord, FeedbackRecord, MessageRecord
 from db_test_support import use_test_database
 from feedback import build_wrap_up_prompt
-from models import InterviewSession, InterviewState
-from scenarios import INTERVIEW_PROMPT, WRAP_UP_PROMPT
+from models import CreateInterviewRequest, InterviewSession, InterviewState
+from scenarios import INTERVIEW_PROMPT, WRAP_UP_PROMPT, build_interview_prompt
 
 
 class SocketClient:
@@ -89,6 +89,41 @@ class InterviewSocketTests(unittest.IsolatedAsyncioTestCase):
         client = SocketClient(interview_id)
         self.clients.append(client)
         return client
+
+    async def test_selected_scenarios_have_independent_openings_and_wrap_ups(self):
+        observability = main.create_interview(CreateInterviewRequest(scenario_id="observability"))
+        observability.state = InterviewState.ACTIVE
+        observability.thread_id = "observability-thread"
+        main.codex_processes[observability.id] = object()
+        calls = {}
+
+        async def stream(process, thread_id, text, request_id):
+            calls.setdefault(thread_id, []).append((text, request_id))
+            yield "Question" if request_id == 3 else "Summary"
+
+        self.enterContext(patch.object(main, "stream_turn", stream))
+        clients = [self.connect(), self.connect(observability.id)]
+        for client in clients:
+            self.assertEqual((await client.receive())["type"], "websocket.accept")
+            self.assertEqual((await client.event())["type"], "delta")
+            self.assertEqual((await client.event())["type"], "turn_completed")
+        for client in clients:
+            client.send(json.dumps({"type": "finish"}))
+        for client in clients:
+            self.assertEqual((await client.event())["type"], "wrap_up_started")
+            self.assertEqual((await client.event())["type"], "delta")
+            self.assertEqual((await client.event())["type"], "session_finished")
+            self.assertEqual((await client.receive())["code"], 1000)
+            await asyncio.wait_for(client.task, timeout=2)
+
+        self.assertEqual(calls["thread-1"], [
+            (build_interview_prompt("ci_cd"), 3),
+            (build_wrap_up_prompt([], scenario_id="ci_cd"), 4),
+        ])
+        self.assertEqual(calls["observability-thread"], [
+            (build_interview_prompt("observability"), 3),
+            (build_wrap_up_prompt([], scenario_id="observability"), 4),
+        ])
 
     async def test_opening_prompt_and_answer_use_same_thread(self):
         calls = []

@@ -1,79 +1,167 @@
 .app {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 h1 {
-  margin: 0 0 4px;
-  font-size: 26px;
+  margin: 0;
+  font-size: 21px;
 }
 
 h2 {
-  margin: 0 0 12px;
-  font-size: 17px;
+  margin: 0 0 10px;
+  font-size: 16px;
 }
 
-header p,
-.session-status,
-.empty-message,
-.answer-actions span {
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #ddd;
+}
+
+.app-heading p {
+  margin: 3px 0 0;
+  font-size: 12px;
   color: #666;
-  font-size: 14px;
 }
 
-header p {
-  margin: 0 0 22px;
-}
-
-.session-controls,
-.button-row,
-.answer-actions {
+.app-header nav, .interview-toolbar, .scenario-picker, .session-controls, .button-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-button {
-  padding: 8px 12px;
+.interview-toolbar {
+  padding: 10px 16px;
+  border-bottom: 1px solid #ddd;
+  gap: 12px;
+}
+
+.scenario-picker {
+  font-size: 13px;
+}
+
+.scenario-picker select {
+  max-width: 100%;
+  padding: 7px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  color: #222;
+  font: inherit;
+}
+
+button:not(.excalidraw button) {
+  padding: 7px 10px;
   border: 1px solid #bbb;
   border-radius: 4px;
   background: #f5f5f5;
   color: #222;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 
-button:hover:not(:disabled) {
+button:not(.excalidraw button):hover:not(:disabled) {
   background: #e8e8e8;
 }
 
-button:disabled {
+button:not(.excalidraw button):disabled {
   color: #888;
-  background: #f5f5f5;
   border-color: #ddd;
   cursor: not-allowed;
 }
 
-.session-status {
-  margin: 12px 0 24px;
+.gear-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.model-settings label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 13px;
+}
+
+.model-settings select {
+  width: 100%;
+  padding: 8px;
+  font: inherit;
+  color: #222;
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+}
+
+.settings-section-title {
+  margin: 24px 18px 0;
+  padding-top: 16px;
+  border-top: 1px solid #ddd;
+}
+
+.interview-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  flex: 1;
+  min-height: 0;
+}
+
+.canvas-panel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.whiteboard {
+  height: 100%;
+  width: 100%;
+}
+
+.interview-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+  border-left: 1px solid #ddd;
+}
+
+.sidebar-heading {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.sidebar-heading h2 {
+  margin-bottom: 5px;
+}
+
+.sidebar-heading p {
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.session-status, .empty-message {
+  color: #666;
+  font-size: 13px;
 }
 
 .conversation {
-  height: 48vh;
-  min-height: 260px;
-  max-height: 600px;
   overflow-y: auto;
+  min-height: 0;
   list-style: none;
   padding: 16px;
   margin: 0;
-  border: 1px solid #ddd;
   scrollbar-width: thin;
+  overscroll-behavior: contain;
 }
 
 .message {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .message:last-child {
@@ -81,58 +169,118 @@ button:disabled {
 }
 
 .message strong {
-  font-size: 14px;
+  font-size: 13px;
+}
+
+.message small {
+  display: block;
+  margin-top: 3px;
+  color: #666;
+  font-size: 11px;
 }
 
 .message p {
   margin: 6px 0 0;
-  font-size: 15px;
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .message-candidate {
-  border-left: 3px solid #ddd;
-  padding-left: 12px;
+  border-left: 2px solid #ccc;
+  padding-left: 10px;
 }
 
-.answer-form {
-  margin-top: 20px;
+.voice-controls {
+  border-top: 1px solid #ddd;
+  padding: 12px 16px;
+  max-height: 42vh;
+  overflow-y: auto;
 }
 
-.answer-form label {
-  display: block;
+.voice-controls h2 {
   font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 8px;
 }
 
-textarea {
-  display: block;
-  width: 100%;
-  min-height: 110px;
-  padding: 10px;
-  border: 1px solid #bbb;
-  border-radius: 4px;
-  background: #fff;
-  color: #222;
-  font-size: 15px;
+.voice-controls p {
+  margin: 8px 0;
+  font-size: 12px;
   line-height: 1.5;
-  resize: vertical;
 }
 
-textarea:disabled {
-  background: #f8f8f8;
-}
-
-.answer-actions {
-  margin-top: 10px;
+.voice-help {
+  color: #666;
 }
 
 .error {
   color: #a11;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+dialog {
+  padding: 0;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  background: #fff;
+  color: #222;
+  max-height: calc(100dvh - 40px);
+  max-width: calc(100vw - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 25%);
+}
+
+.dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #ddd;
+}
+
+.dialog-heading h2 {
+  margin: 0;
+}
+
+.history-dialog {
+  width: 960px;
+}
+
+.history-content {
+  padding: 18px;
+}
+
+.history-content > section {
+  margin-bottom: 28px;
+}
+
+.history-content p, .history-content li {
   font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.history-content li {
+  margin-bottom: 18px;
+}
+
+.settings-dialog {
+  width: 500px;
+}
+
+.test-section {
+  margin: 18px;
+}
+
+.test-section p {
+  color: #666;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -151,24 +299,9 @@ button.feedback-reference {
   text-decoration: underline;
 }
 
-.test-controls {
-  margin-top: 28px;
-  padding-top: 16px;
-  border-top: 1px solid #ddd;
-  font-size: 14px;
-}
-
-.test-controls summary {
-  cursor: pointer;
-}
-
-.test-section {
-  margin-top: 20px;
-}
-
-.test-section p {
-  color: #666;
-  line-height: 1.5;
+.saved-message:focus {
+  outline: 2px solid #2456a6;
+  outline-offset: 4px;
 }
 
 audio {
@@ -177,12 +310,50 @@ audio {
   margin-top: 12px;
 }
 
-@media (max-width: 520px) {
-  .app {
-    padding: 20px 14px;
+@media (max-width: 800px) {
+  .interview-workspace {
+    grid-template-columns: minmax(0, 1fr) 300px;
   }
 
-  .conversation {
-    padding: 12px;
+  .app-heading p {
+    display: none;
   }
+
+}
+@media (max-width: 600px) {
+  .app {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .interview-workspace {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .canvas-panel {
+    height: 60dvh;
+    flex: none;
+  }
+
+  .interview-sidebar {
+    height: 70dvh;
+    border-left: 0;
+    border-top: 1px solid #ddd;
+  }
+
+  .app-header, .interview-toolbar {
+    padding: 10px;
+  }
+
+  .scenario-picker {
+    width: 100%;
+  }
+
+  .scenario-picker select {
+    flex: 1;
+    min-width: 0;
+  }
+
 }

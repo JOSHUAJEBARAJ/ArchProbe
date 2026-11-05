@@ -64,7 +64,7 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
         entered = asyncio.Event()
         release = asyncio.Event()
 
-        async def initialize(process):
+        async def initialize(process, **settings):
             entered.set()
             await release.wait()
             return "thread-1"

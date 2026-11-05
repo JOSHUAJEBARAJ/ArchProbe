@@ -1,0 +1,83 @@
+id: observability
+title: Design an observability platform
+
+exercise: |
+  Design an observability platform for a production application.
+  Explain how engineers would detect customer-impacting problems,
+  investigate incidents, and understand application health.
+
+facts:
+  - The application consists of ten containerized services across two availability zones.
+  - Services communicate through HTTP APIs and an asynchronous message queue.
+  - The application serves customer traffic continuously and receives several deployments per day.
+  - A small engineering team shares an on-call rotation.
+  - Engineers need metrics, logs, and traces to investigate problems across services.
+  - Sensitive customer data must not be exposed through telemetry.
+  - Telemetry storage and processing costs must be controlled.
+  - The candidate may choose the cloud provider, deployment platform, and observability tools.
+  - Traffic volume, SLO targets, retention periods, and budget are unspecified and should be clarified or agreed as assumptions.
+
+guidance: |
+  Start by giving the candidate a short scenario brief: design an
+  observability platform for ten containerized services across two
+  availability zones, operated by a small engineering team sharing
+  an on-call rotation. The goal is to detect customer impact and
+  investigate incidents using metrics, logs, and traces.
+  Then ask one opening question:
+  "What requirements would you clarify before proposing your architecture?"
+  Wait for the candidate's clarification questions and answer them
+  using the scenario facts. Do not ask the candidate to rediscover
+  facts already given, such as who operates the platform.
+  Traffic, critical business workflows, SLO targets, retention, and
+  budget are not fully specified. Agree on assumptions when needed;
+  do not require the candidate to invent missing business context.
+  Let the candidate lead the initial clarification of reliability goals,
+  application scale, investigation needs, retention, and cost constraints.
+  Once enough requirements are clear, ask the candidate to propose
+  the instrumentation, telemetry collection, and analysis architecture.
+  Explore metrics, logs, traces, and how engineers correlate them
+  across synchronous requests and asynchronous processing.
+  Discuss collection, buffering, storage, querying, dashboards,
+  service-level indicators, SLOs, and actionable alerts.
+  Ask how engineers distinguish customer impact from noisy symptoms
+  and use telemetry during an incident.
+  Probe collector or storage failures, backpressure, telemetry loss,
+  application overhead, cardinality, sampling, and retention trade-offs.
+  Discuss access controls, sensitive-data handling, and how the team
+  monitors the observability platform itself.
+  Progress from requirements to architecture, then alerting,
+  incident investigation, reliability, security, and cost.
+  Skip topics already answered and do not require particular products.
+  Evaluate reasoning and trade-offs rather than tool names.
+  Use the scenario facts when answering clarification questions.
+  If a detail is unspecified, agree on an assumption with the candidate.
+  Do not invent hidden requirements or provide a complete solution.
+
+rubric:
+  - >-
+    Requirements: clarifies system scale, operational users,
+    customer-impacting failure modes, reliability goals,
+    retention needs, and cost constraints.
+  - >-
+    Instrumentation and signals: explains useful metrics, structured logs,
+    distributed traces, and correlation across services and message queues,
+    including instrumentation overhead and coverage limitations.
+  - >-
+    Collection and reliability: explains telemetry transport, buffering,
+    backpressure, failure isolation, availability, and what happens
+    when collectors or storage are unavailable.
+  - >-
+    Storage, queries, and cost: explains storage choices, query needs,
+    cardinality, sampling, retention, and the trade-offs between
+    investigation detail, performance, and cost.
+  - >-
+    SLOs, alerting, and investigation: connects service-level indicators
+    to customer experience, proposes meaningful SLOs and actionable alerts,
+    and explains how dashboards and correlated signals support incident diagnosis.
+  - >-
+    Security and operations: considers sensitive-data redaction,
+    access controls, telemetry integrity, ownership, and monitoring
+    the observability platform itself.
+  - >-
+    Communication: explains design choices, assumptions, failure behavior,
+    and trade-offs rather than only naming tools.

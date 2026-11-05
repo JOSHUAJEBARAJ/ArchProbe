@@ -1,0 +1,52 @@
+id: ci_cd
+title: Design a CI/CD pipeline
+
+exercise: |
+  Design a CI/CD pipeline for a web application,
+  from a code change to a safe production deployment.
+
+facts:
+  - One containerized web application in one Git repository.
+  - Five developers merge changes several times per day.
+  - Separate staging and production environments are required.
+  - Failed tests must prevent promotion to production.
+  - A bad production release must be recoverable.
+  - The candidate may choose the CI platform and cloud provider.
+
+guidance: |
+  Begin by clarifying the application and delivery requirements.
+  Once enough requirements are clear, ask the candidate to propose their pipeline.
+  Explore builds, tests, artifacts, secrets, environment promotion,
+  deployment strategies, rollback, and delivery observability.
+  Ask how the pipeline handles failures and concurrent changes.
+  Progress from requirements to pipeline stages, then security,
+  deployment, and recovery. Skip topics already answered.
+  Do not assume a particular CI tool or cloud provider.
+  Evaluate reasoning and trade-offs rather than tool names.
+  Use the scenario facts when answering clarification questions.
+  If a detail is unspecified, agree on an assumption with the candidate.
+  Do not invent hidden requirements or provide a complete solution.
+
+rubric:
+  - >-
+    Requirements: clarifies the application, team, release frequency,
+    and constraints.
+  - >-
+    Build, tests, and artifacts: explains stages, useful checks,
+    reproducibility, immutable versioned artifacts, and promoting
+    the same artifact between environments.
+  - >-
+    Security: considers secrets, least privilege, dependencies,
+    and artifact trust.
+  - >-
+    Deployment: explains environment promotion, gates, safe rollout,
+    and concurrent changes.
+  - >-
+    Recovery: explains failed tests, partial deployments, rollback,
+    and database changes.
+  - >-
+    Observability: explains pipeline and deployment signals
+    and how to verify a release.
+  - >-
+    Communication: explains decisions and trade-offs rather
+    than only naming tools.

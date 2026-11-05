@@ -1,6 +1,9 @@
 import asyncio
 import json 
 
+CODEX_MODEL = "gpt-6.1-sol"
+CODEX_REASONING_EFFORT = "medium"
+
 
 async def start_codex():
     process = await asyncio.create_subprocess_exec(
@@ -34,7 +37,8 @@ async def wait_for_response(process, request_id):
             return message["result"]
 
 
-async def initialize_conversation(process):
+async def initialize_connection(process):
+    """Complete the handshake without creating an interview thread."""
     await send_message(process, {
         "id": 1,
         "method": "initialize",
@@ -54,13 +58,61 @@ async def initialize_conversation(process):
         "params": {},
     })
 
+
+async def list_codex_models(process):
+    await initialize_connection(process)
+    return await read_model_catalog(process)
+
+
+async def read_model_catalog(process):
+    models = []
+    cursor = None
+    seen_cursors = set()
+    request_id = 2
+    while True:
+        params = {"limit": 100, "includeHidden": False}
+        if cursor is not None:
+            params["cursor"] = cursor
+        await send_message(process, {
+            "id": request_id,
+            "method": "model/list",
+            "params": params,
+        })
+        result = await wait_for_response(process, request_id)
+        models.extend(model for model in result["data"] if not model.get("hidden", False))
+        cursor = result.get("nextCursor")
+        if cursor is None:
+            return models
+        if cursor in seen_cursors:
+            raise RuntimeError("Codex returned a repeated model-list cursor")
+        seen_cursors.add(cursor)
+        request_id += 1
+
+
+async def initialize_conversation(process, model=None, reasoning_effort=None):
+    await initialize_connection(process)
+    selected_model = model or CODEX_MODEL
+    selected_effort = reasoning_effort or CODEX_REASONING_EFFORT
+    if model is not None or reasoning_effort is not None:
+        catalog = await read_model_catalog(process)
+        choice = next((item for item in catalog if item["model"] == selected_model), None)
+        if choice is None:
+            raise ValueError("The selected model is no longer available in Codex.")
+        efforts = {option["reasoningEffort"] for option in choice["supportedReasoningEfforts"]}
+        if selected_effort not in efforts:
+            raise ValueError("The selected reasoning effort is not supported by this model.")
     await send_message(process, {
-        "id": 2,
+        "id": 1000,
         "method": "thread/start",
-        "params": {},
+        "params": {
+            "model": selected_model,
+            "config": {
+                "model_reasoning_effort": selected_effort,
+            },
+        },
     })
 
-    result = await wait_for_response(process, 2)
+    result = await wait_for_response(process, 1000)
     return result["thread"]["id"]
 
 

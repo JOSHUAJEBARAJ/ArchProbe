@@ -25,10 +25,11 @@ class MessageHistoryEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def get(self, path):
         return await self.request("GET", path)
 
-    async def request(self, method, path):
+    async def request(self, method, path, payload=None):
         """Exercise HTTP routing and JSON serialization without a running server."""
         incoming = asyncio.Queue()
-        incoming.put_nowait({"type": "http.request", "body": b"", "more_body": False})
+        body = json.dumps(payload).encode() if payload is not None else b""
+        incoming.put_nowait({"type": "http.request", "body": body, "more_body": False})
         outgoing = []
 
         async def send(message):
@@ -38,13 +39,45 @@ class MessageHistoryEndpointTests(unittest.IsolatedAsyncioTestCase):
             "type": "http", "asgi": {"version": "3.0"},
             "http_version": "1.1", "method": method, "scheme": "http",
             "path": path, "raw_path": path.encode(), "query_string": b"",
-            "root_path": "", "headers": [],
+            "root_path": "", "headers": [(b"content-type", b"application/json")] if payload is not None else [],
             "client": ("127.0.0.1", 50000), "server": ("127.0.0.1", 8000),
         }
         await asyncio.wait_for(main.app(scope, incoming.get, send), timeout=3)
         status = next(message["status"] for message in outgoing if message["type"] == "http.response.start")
         body = b"".join(message.get("body", b"") for message in outgoing if message["type"] == "http.response.body")
         return status, json.loads(body) if body else None
+
+    async def test_create_interview_accepts_each_known_scenario(self):
+        for scenario_id in ("ci_cd", "observability"):
+            status, session = await self.request("POST", "/interviews", {"scenario_id": scenario_id})
+            self.assertEqual(status, 201)
+            self.assertEqual(session["scenario_id"], scenario_id)
+            self.assertEqual(session["state"], "ready")
+            self.assertEqual(main.sessions[session["id"]].scenario_id, scenario_id)
+            status, retrieved = await self.get(f"/interviews/{session['id']}")
+            self.assertEqual(status, 200)
+            self.assertEqual(retrieved["scenario_id"], scenario_id)
+
+    async def test_create_interview_rejects_bad_scenarios_before_saving(self):
+        for payload in ({"scenario_id": "missing"}, {"scenario_id": ""}, {}):
+            status, _ = await self.request("POST", "/interviews", payload)
+            self.assertEqual(status, 422)
+        self.assertEqual(main.sessions, {})
+        _, interviews = await self.get("/interviews")
+        self.assertEqual(len(interviews), 2)
+
+    async def test_create_interview_without_body_keeps_ci_cd_default(self):
+        status, session = await self.request("POST", "/interviews")
+        self.assertEqual(status, 201)
+        self.assertEqual(session["scenario_id"], "ci_cd")
+
+    async def test_scenario_catalog_returns_ids_and_display_titles(self):
+        status, scenarios = await self.get("/scenarios")
+        self.assertEqual(status, 200)
+        self.assertEqual(scenarios, [
+            {"id": "ci_cd", "title": "Design a CI/CD pipeline"},
+            {"id": "observability", "title": "Design an observability platform"},
+        ])
 
     async def test_delete_removes_cached_interview_and_saved_history(self):
         save_candidate_answer("first", "My drawing.", DiagramSnapshot(revision=1, elements=[]))

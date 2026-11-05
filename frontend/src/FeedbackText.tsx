@@ -16,9 +16,10 @@ type FeedbackTextProps = {
     diagram: SavedDiagramSnapshot | null
   }[]
   onViewDiagram: (messageId: number) => void
+  onViewMessage: (messageId: number) => void
 }
 
-export default function FeedbackText({ text, evidence, messages, onViewDiagram }: FeedbackTextProps) {
+export default function FeedbackText({ text, evidence, messages, onViewDiagram, onViewMessage }: FeedbackTextProps) {
   const parts = text.split(/(\[(?:Answer [0-9]+|Diagram [0-9]+ revision [0-9]+)\])/g)
 
   return (
@@ -47,9 +48,14 @@ export default function FeedbackText({ text, evidence, messages, onViewDiagram }
           )
         }
         return (
-          <a key={index} href={`#saved-message-${reference.message_id}`}>
+          <button
+            key={index}
+            type="button"
+            className="feedback-reference"
+            onClick={() => onViewMessage(reference.message_id)}
+          >
             {part.slice(1, -1)}
-          </a>
+          </button>
         )
       })}
     </p>

@@ -2,11 +2,21 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
+from shutil import which
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from pydantic import ValidationError
 
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Response,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from storage import (
@@ -25,14 +35,25 @@ from storage import (
 
 from codex_client import (
     initialize_conversation,
+    list_codex_models,
     start_codex,
     stop_codex,
     stream_turn,
 )
 from diagrams import diagram_context
 from feedback import build_wrap_up_prompt
-from models import InterviewAnswer, InterviewSession, InterviewState, SavedFeedback, SavedInterview, SavedMessage
-from scenarios import INTERVIEW_PROMPT, WRAP_UP_PROMPT
+from models import (
+    CodexModelSummary,
+    CreateInterviewRequest,
+    InterviewAnswer,
+    InterviewSession,
+    InterviewState,
+    SavedFeedback,
+    SavedInterview,
+    SavedMessage,
+    ScenarioSummary,
+)
+from scenarios import DEFAULT_SCENARIO_ID, SCENARIOS, build_interview_prompt, get_scenario
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +95,144 @@ app.add_middleware(
 )
 
 
+@app.post("/audio/check")
+async def check_audio(file: UploadFile):
+    max_bytes = 10 * 1024 * 1024
+    audio = await file.read(max_bytes + 1)
+
+    if not audio:
+        raise HTTPException(status_code=400, detail="The audio file is empty.")
+
+    if len(audio) > max_bytes:
+        raise HTTPException(status_code=413, detail="The audio file is too large.")
+
+    ffmpeg = which("ffmpeg")
+    if ffmpeg is None:
+        raise HTTPException(status_code=503, detail="FFmpeg is not installed or is not on PATH.")
+
+    whisper = which("whisper-cli")
+    if whisper is None:
+        raise HTTPException(status_code=503, detail="whisper-cli is not installed or is not on PATH.")
+
+    model_path = Path(__file__).resolve().parent.parent / "models" / "ggml-base.en.bin"
+    if not model_path.is_file():
+        raise HTTPException(status_code=503, detail="The Whisper model models/ggml-base.en.bin is missing.")
+
+    with TemporaryDirectory(prefix="archprobe-audio-") as directory:
+        input_path = Path(directory) / "recording"
+        output_path = Path(directory) / "recording.wav"
+        await asyncio.to_thread(input_path.write_bytes, audio)
+
+        process = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-y", "-i", str(input_path),
+            "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            str(output_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        try:
+            _, error = await asyncio.wait_for(process.communicate(), timeout=30)
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            if process.returncode is None:
+                process.kill()
+            await process.communicate()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise HTTPException(status_code=504, detail="Audio conversion timed out.") from exc
+
+        if process.returncode != 0:
+            logger.warning("Audio conversion failed: %s", error.decode(errors="replace"))
+            raise HTTPException(status_code=400, detail="Could not convert this file. Upload a valid audio recording.")
+
+        converted_size = output_path.stat().st_size
+
+        transcript_prefix = Path(directory) / "transcript"
+        process = await asyncio.create_subprocess_exec(
+            whisper,
+            "--no-gpu", "-m", str(model_path), "-f", str(output_path),
+            "-l", "en", "-otxt", "-of", str(transcript_prefix),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        try:
+            _, error = await asyncio.wait_for(process.communicate(), timeout=120)
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            if process.returncode is None:
+                process.kill()
+            await process.communicate()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise HTTPException(status_code=504, detail="Audio transcription timed out.") from exc
+
+        transcript_path = transcript_prefix.with_suffix(".txt")
+        if process.returncode != 0 or not transcript_path.is_file():
+            logger.warning("Audio transcription failed: %s", error.decode(errors="replace"))
+            raise HTTPException(status_code=500, detail="Whisper could not transcribe the recording.")
+
+        transcript = await asyncio.to_thread(transcript_path.read_text, encoding="utf-8")
+
+    return {
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "size_bytes": len(audio),
+        "converted_size_bytes": converted_size,
+        "format": "wav",
+        "sample_rate": 16000,
+        "channels": 1,
+        "transcript": transcript.strip(),
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/scenarios", response_model=list[ScenarioSummary])
+def get_scenarios():
+    return [
+        {"id": scenario_id, "title": scenario["title"]}
+        for scenario_id, scenario in SCENARIOS.items()
+    ]
+
+
+@app.get("/codex/models", response_model=list[CodexModelSummary])
+async def get_codex_models():
+    # Use a separate process so discovery never reads an interview's event stream.
+    process = None
+    try:
+        async with asyncio.timeout(30):
+            process = await start_codex()
+            models = await list_codex_models(process)
+            return [
+                CodexModelSummary(
+                    id=model["id"],
+                    model=model["model"],
+                    display_name=model["displayName"],
+                    default_reasoning_effort=model["defaultReasoningEffort"],
+                    supported_reasoning_efforts=[
+                        {"effort": option["reasoningEffort"], "description": option["description"]}
+                        for option in model["supportedReasoningEfforts"]
+                    ],
+                    is_default=model["isDefault"],
+                )
+                for model in models
+            ]
+    except TimeoutError as error:
+        raise HTTPException(status_code=504, detail="Codex model discovery timed out. Please retry.") from error
+    except OSError as error:
+        raise HTTPException(status_code=503, detail="Could not run the local Codex CLI.") from error
+    except Exception as error:
+        logger.exception("Codex model discovery failed")
+        raise HTTPException(status_code=502, detail="Could not load models from Codex. Check your Codex login and retry.") from error
+    finally:
+        if process is not None:
+            await stop_codex(process)
+
 
 @app.websocket("/interviews/{interview_id}/ws")
 async def interview_socket(websocket: WebSocket, interview_id: str):
@@ -163,13 +319,13 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
 
     async def run_conversation():
         nonlocal busy
-        text = INTERVIEW_PROMPT
+        text = build_interview_prompt(session.scenario_id)
         request_id = 3
         wrapping_up = False
         while True:
             if wrapping_up:
                 history = await asyncio.to_thread(load_messages, interview_id)
-                text = build_wrap_up_prompt(history)
+                text = build_wrap_up_prompt(history, scenario_id=session.scenario_id)
                 await websocket.send_json({"type": "wrap_up_started"})
             reply_parts = []
             async with asyncio.timeout(CODEX_TURN_TIMEOUT):
@@ -206,7 +362,7 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
             else:
                 next_answer = await answers.get()
             wrapping_up = next_answer is None
-            text = WRAP_UP_PROMPT if wrapping_up else next_answer
+            text = "" if wrapping_up else next_answer
             busy = True
             request_id += 1
 
@@ -250,8 +406,18 @@ async def interview_socket(websocket: WebSocket, interview_id: str):
                 interview_sockets.pop(interview_id, None)
 
 @app.post("/interviews", response_model=InterviewSession, status_code=201)
-def create_interview():
-    session = InterviewSession(id=str(uuid4()))
+def create_interview(request: CreateInterviewRequest | None = None):
+    scenario_id = request.scenario_id if request is not None else DEFAULT_SCENARIO_ID
+    try:
+        get_scenario(scenario_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    session = InterviewSession(
+        id=str(uuid4()), scenario_id=scenario_id,
+        model=request.model if request else None,
+        reasoning_effort=request.reasoning_effort if request else None,
+    )
     save_interview(session)
     sessions[session.id] = session
     return session
@@ -335,7 +501,7 @@ async def start_interview(interview_id: str):
             raise HTTPException(status_code=503, detail="Could not start the local Codex CLI") from error
         try:
             thread_id = await asyncio.wait_for(
-                initialize_conversation(process), timeout=30
+                initialize_conversation(process, model=session.model, reasoning_effort=session.reasoning_effort), timeout=30
             )
             active_session = session.model_copy(update={"state": InterviewState.ACTIVE, "thread_id": thread_id})
             await asyncio.to_thread(save_interview, active_session)
