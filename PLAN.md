@@ -110,23 +110,26 @@ Validation checkpoint (2026-11-04): Joshua shared real Codex responses recognizi
 
 ## Milestone 5 — Add conversational voice
 
-Deferred by Joshua's request (2026-11-04): begin milestone 6 after committing the milestone 4 implementation. Voice integration remains planned for later.
+Status (2026-11-06): the core spoken interview flow is implemented and Joshua reported successful voice turns, automatic microphone startup, silence submission, and Pause/Resume. Failure-and-retry acceptance testing and end-to-end latency measurements are deferred at Joshua's request. A browser smoke check after the final frontend refactor remains pending.
 
 Learn: audio capture, transcription, turn detection, async work, and cancellation.
 
-- [ ] Capture microphone audio and send it for local transcription without blocking FastAPI's event loop.
-- [ ] Show the transcript and recording/transcribing/thinking/speaking states.
-- [ ] Use detected speech pauses to submit completed turns; provide an explicit end-turn control as a fallback.
-- [ ] Speak completed interviewer sentences through browser SpeechSynthesis.
-- [ ] Prevent the interviewer's playback from being submitted as the user's answer; add mute and stop-speaking controls.
-- [ ] Handle microphone denial, silence, transcription failure, and model timeout without losing the session.
-- [ ] Measure end-of-user-speech to first audible response across several turns; document results and limitations.
+- [x] Capture microphone audio and send it for local transcription without blocking FastAPI's event loop.
+- [x] Show the transcript and recording/transcribing/thinking/speaking states.
+- [x] Use detected speech pauses to submit completed turns; provide an explicit end-turn control as a fallback.
+- [x] Speak completed interviewer responses through browser SpeechSynthesis.
+- [x] Stop microphone capture during interviewer playback; provide Stop speaking and Pause/Resume controls.
+- [ ] Add a persistent speech-mute option if needed; Stop speaking currently cancels the current response only.
+- [ ] Complete live acceptance of microphone denial, silence, transcription failure, and model timeout recovery. Deferred by Joshua.
+- [ ] Measure end-of-user-speech to first audible response across several turns; document results and limitations. Deferred by Joshua.
+
+Frontend refactor checkpoint: `App.tsx` composes the UI and hooks for settings, interview sessions, voice, history, and diagnostics. Shared audio helpers cover track cleanup and multipart transcription. Fourteen frontend tests, 76 backend tests, lint, and the production build passed after the refactor. These checks do not replace real browser audio acceptance.
 
 Done when: you can hold a spoken interview while drawing, recover from a failed turn, and see understandable status throughout. Natural interruption handling can be improved after this basic flow works.
 
 ## Milestone 6 — Save sessions and give useful feedback
 
-Status: complete for the current local text-and-diagram interview flow. Joshua reported successful final checks; broader model-quality evaluation belongs to milestone 7. Voice integration remains deferred in milestone 5.
+Status: complete for saved conversations, diagrams, and evidence-linked feedback. Joshua reported successful final checks; broader model-quality evaluation belongs to milestone 7. Live scenario/model/reasoning selections are not yet persisted in SQLite.
 
 Learn: SQLAlchemy, persistence, rubric-based evaluation, and evidence grounding.
 
@@ -157,12 +160,16 @@ Learn: end-to-end testing, AI evaluation, CI, and explaining engineering decisio
 - [ ] Review whether follow-ups match the current design and feedback references valid evidence; record examples and failures.
 - [ ] Add one Playwright smoke test for the core interview flow with fake AI/audio responses, and run a separate manual check with real integrations.
 - [ ] Add GitHub Actions for backend tests/lint and frontend type checking/build/tests.
-- [ ] Complete and evaluate the CI/CD design scenario; additional scenarios remain deferred.
+- [ ] Evaluate the implemented CI/CD and observability scenarios. Start with CI/CD, then check observability against its own rubric.
 - [ ] Document architecture, setup, subscription requirements, local data handling, measured latency, evaluation results, and known limitations.
 - [ ] Record a short demo showing a diagram-specific follow-up and the resulting feedback.
 - [ ] Write resume bullets based on implemented behavior and measured results.
 
 Done when: a fresh local setup can complete an interview using the README, checks pass, and you can explain the architecture and its trade-offs without relying on generated code.
+
+Evaluation checkpoint (2026-11-06): the first manual case, [weak CI/CD design](evals/ci_cd/01-weak-design.md), is prepared. Its real-model result is pending; the rest of the evaluation set is not yet written.
+
+Release preparation (2026-11-06): Joshua chose a GitHub local-preview release and deferred further testing/evaluation until later. `v0.1.0` setup documentation, release notes, version metadata, and [publication instructions](RELEASING.md) are prepared. Frontend and backend versions match, and `uv lock --check --offline` passed after declaring the existing PyYAML dependency directly. No new test suite or live evaluation was run during release preparation. The Git commit, tag push, and GitHub pre-release publication are still pending.
 
 ## Decisions and measurements
 
@@ -173,8 +180,8 @@ Done when: a fresh local setup can complete an interview using the README, check
 | Backend | Python + FastAPI; WebSockets |
 | Storage | SQLite + SQLAlchemy |
 | Reasoning | Local Codex app-server; subscription-backed text and image responses verified |
-| Voice | Local whisper.cpp in CPU mode + browser SpeechSynthesis; components verified independently |
-| Next task | Milestone 6 is complete for the current text/diagram flow. Return to deferred milestone 5 voice integration, then milestone 7 evaluation, CI, documentation, and portfolio preparation. |
+| Voice | Local whisper.cpp in CPU mode + browser SpeechSynthesis; core spoken loop reported working; latency and failure acceptance deferred |
+| Next task | Publish the prepared v0.1.0 GitHub local preview. Resume milestone 7 evaluation, browser coverage, CI, and portfolio work after release; further testing is deferred by Joshua. |
 
 ## Later improvements
 

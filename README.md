@@ -1,136 +1,162 @@
 # ArchProbe
 
-An AI system design interviewer that probes your architecture decisions through voice and an interactive whiteboard.
+Practice DevOps and SRE system design interviews by speaking and drawing with an AI interviewer.
 
-## Project status
+**v0.1.0 is a local preview.** Run the frontend, Python backend, Codex CLI, and Whisper on your own machine. This release is intended for personal practice and portfolio demonstrations.
 
-The basic React interface supports a text CI/CD interview with streamed questions, candidate answers, ordered conversation history, and a concise end-of-interview wrap-up. FastAPI manages a local Codex process per active interview. Embedded whiteboard, connected voice interviews, persistent sessions, and detailed saved feedback are still being built.
+## What you can do
 
-ArchProbe is being built for personal interview preparation and as a portfolio project, initially targeting mid-level DevOps and SRE interviews.
+- Choose **CI/CD pipeline design** or **observability platform design**.
+- Draw on an embedded Excalidraw canvas while explaining your decisions aloud.
+- Hear the interviewer's questions through browser speech synthesis.
+- Automatically record answers after each spoken question. Five seconds of silence after detected speech submits the transcript and a snapshot of the diagram.
+- Pause/resume the interview or stop recording manually.
+- Choose a Codex model and supported reasoning effort in the gear menu before creating an interview.
+- End the interview for a recap, strengths, improvements, and a practice exercise.
+- Review saved conversations, diagram revisions, and evidence-linked feedback in History, or delete a completed interview.
 
-The initial interview focuses on CI/CD pipeline design: source control triggers, builds, tests, artifact management, security, environment promotion, deployment strategies, rollbacks, and pipeline reliability. Candidates should explain their trade-offs rather than simply name tools.
+The interviewer receives the submitted diagram elements, not a continuous screen recording. Uploaded images and screenshots are not part of the normal interview flow.
 
-## Planned experience
+## Requirements
 
-1. Choose a system design scenario and interview duration.
-2. Discuss requirements with a voice-based AI interviewer.
-3. Draw your architecture in an embedded Excalidraw whiteboard while explaining your decisions.
-4. Answer follow-up questions grounded in your explanation and diagram.
-5. Review feedback on requirements, scalability, reliability, trade-offs, and communication, with evidence from the session.
+The current setup has been used on macOS. Other operating systems and browsers have not been verified for this release.
 
-The first scenario is to design a CI/CD pipeline that takes a web application from a code change to a safe production deployment. Additional scenarios are deferred until this interview flow works.
-
-## Proposed stack
-
-| Component | Technology |
+| Dependency | Requirement |
 | --- | --- |
-| Frontend | React, Vite, TypeScript |
-| Styling | Minimal plain CSS |
-| Whiteboard | Excalidraw |
-| Backend | Python, FastAPI, Uvicorn, Pydantic |
-| Live communication | WebSockets |
-| Storage | SQLite, SQLAlchemy |
-| Interview reasoning | Local Codex app-server integration |
-| Speech recognition | Local whisper.cpp |
-| Spoken responses | Browser SpeechSynthesis |
-| Testing | unittest backend suite; frontend build/ESLint; browser automation planned |
-| Tooling | uv, Ruff, GitHub Actions |
+| Node.js | 24.x and npm; use `nvm use` if you already have nvm installed |
+| Python | 3.12 or later, managed with [uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| Codex | Installed CLI, signed in, with access to the selected model |
+| FFmpeg | `ffmpeg` available on the backend terminal's PATH |
+| Whisper | [whisper.cpp](https://github.com/ggml-org/whisper.cpp), providing `whisper-cli` on PATH |
+| Browser | Microphone permission, MediaRecorder, Web Audio, and SpeechSynthesis support |
 
-## Initial technical validation
+Install and sign in to Codex using the [official CLI instructions](https://learn.chatgpt.com/docs/cli). For an npm installation:
 
-Before implementing the full interview flow, validate subscription-backed Codex access for the local application, diagram context input, and end-to-end voice response latency on the development machine. Subscription limits still apply; speech handling is separate from Codex reasoning.
+```bash
+npm install -g @openai/codex
+codex login
+```
 
-Transcription should run outside the backend event loop so audio processing does not block interview events. Use diagram elements and snapshots as visual context; screen sharing and video recording are future additions.
+This application uses a local `codex app-server` process and the CLI's configured authentication. Inference uses the signed-in account's allowance and model access. Audio transcription is a separate local Whisper process; a ChatGPT subscription is not an unlimited API allowance.
 
-## Development
+## Run locally
 
-Follow the [learning and build plan](PLAN.md) for milestones, completion criteria, and our guide-and-builder workflow. Joshua implements the application; the assistant explains, reviews, and helps troubleshoot.
+### 1. Get the source
 
-The first version is intended to run locally.
+```bash
+git clone https://github.com/JOSHUAJEBARAJ/ArchProbe.git
+cd ArchProbe
+```
 
-### Prerequisites
+To use this release after its tag has been published, run `git checkout v0.1.0`. To use ongoing development instead, stay on `main`.
 
-- Node.js 24 LTS and npm.
-- Python 3.12 or later and uv.
+### 2. Download the English speech model
 
-### Run locally
+From the repository root:
 
-From the repository root, start the backend in one terminal:
+```bash
+mkdir -p models
+curl --fail --location \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin \
+  --output models/ggml-base.en.bin
+```
+
+This is the preconverted model distributed through the [whisper.cpp model instructions](https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md). The model is downloaded separately and is not included in this repository or release archive.
+
+### 3. Start the backend
+
+Make sure `codex`, `ffmpeg`, and `whisper-cli` are available in this terminal:
+
+```bash
+codex --version
+ffmpeg -version
+whisper-cli --help
+```
+
+Then run:
 
 ```bash
 cd backend
-uv sync
-uv run uvicorn main:app --reload
+uv sync --locked
+uv run uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-From the repository root in a second terminal, start the frontend:
+Keep the terminal open. API documentation is available at http://127.0.0.1:8000/docs and health status at http://127.0.0.1:8000/health.
+
+For development, add `--reload`. Restarting the backend interrupts active interviews; saved history remains available.
+
+### 4. Start the frontend
+
+Open a second terminal at the repository root:
 
 ```bash
 cd frontend
-npm install
-npm run dev
+npm ci
+npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-Open the frontend URL printed by Vite.
+Open http://127.0.0.1:5173. The backend allows frontend requests from that address and `http://localhost:5173`.
 
-- Health endpoint: http://127.0.0.1:8000/health
-- API documentation: http://127.0.0.1:8000/docs
-- Expand **Test controls** and click **Check backend** to verify the frontend/backend connection. Audio checks are independent of the interview.
-- **Create interview** creates an in-memory backend session.
-- **Connect interviewer** starts a Codex process and creates its conversation. This requires the local Codex CLI to be logged in.
-- Answer the streamed questions in the text box. Sending is disabled while the interviewer responds.
-- **End interview** requests a short wrap-up, then closes the conversation. If a response is already in progress, it finishes before the wrap-up starts.
-- **New interview** becomes available after finishing or an error. It discards the previous session and its browser history and creates a fresh one without refreshing the page.
+### 5. Start an interview
 
-The backend permits frontend requests from `http://localhost:5173` and `http://127.0.0.1:5173`. If Vite starts on another port, update `allow_origins` in `backend/main.py` to match.
+1. Choose a scenario. Optionally open **Settings** using the top-right gear to select a model and reasoning effort.
+2. Click **Create interview**, then **Connect interviewer**.
+3. Allow microphone access. Listen to the opening question; the microphone starts when speech playback finishes.
+4. Explain your design while drawing. Five seconds of silence after speech sends your answer and the diagram as it was when recording ended.
+5. Use **Pause interview** before an extended thinking/drawing break. Pausing discards unsent audio. Resume when ready; an interrupted question may be replayed.
+6. Click **End interview** for the wrap-up. Open **History** to review saved answers, diagrams, and feedback references.
 
-### Verify the frontend
+Settings lock after interview creation. Finish the interview, or recover from an error using **New interview**, before choosing again. Closed interviews cannot be resumed as live Codex conversations.
 
-From `frontend/`, run:
+## Architecture
+
+```text
+Browser: React + Excalidraw + MediaRecorder + SpeechSynthesis
+    | HTTP audio uploads and history requests; WebSocket interview events
+Python: FastAPI + SQLite
+    |-- FFmpeg -> 16 kHz mono WAV -> whisper-cli (CPU, English)
+    |-- codex app-server -> model responses through stdin/stdout JSON messages
+    `-- SQLite -> saved messages, diagram revisions, and feedback references
+```
+
+`App.tsx` composes components and hooks for interview sessions, voice, settings, and history. See the [frontend guide](frontend/README.md) and [backend guide](backend/README.md) for code structure and checks. Scenario definitions live in `backend/scenario_content/*.yaml`; restart the backend after editing YAML.
+
+## Local data and model input
+
+- Conversations, accepted transcripts, diagram snapshots, and final feedback are saved in `backend/data/archprobe.db`.
+- Audio conversion and Whisper transcription use temporary backend files that are cleaned up after processing. Browser recordings may remain in memory for playback or retry.
+- Submitted transcripts, diagram elements, and interview context are sent to Codex for model inference. This is not an offline-only application.
+- Codex may maintain its own conversation history under its configured home. Deleting an interview in ArchProbe removes ArchProbe's stored records, not Codex's separate history.
+- Live scenario, model, and reasoning selections are currently kept in memory. A backend restart does not preserve those selections for an unstarted interview.
+- Local databases, downloaded models, recordings, environments, and build output are excluded from Git.
+
+## Preview limitations and deferred work
+
+- English transcription uses `base.en` in CPU mode. Technical terms can be misheard; the transcript is sent automatically without a correction step.
+- Silence detection uses audio volume, not semantic understanding. It can submit a thinking pause or react to background noise; Pause/Resume and manual Stop remain available.
+- Speech quality and autoplay behavior depend on the browser and installed voices. Stop speaking cancels a response; a persistent mute setting is not implemented.
+- End-to-end latency measurements, comprehensive failure/retry acceptance, browser automation, and the full interview-quality evaluation set are deferred.
+- The final frontend refactor passed automated checks but still needs a full live browser audio smoke check.
+- Feedback references are checked for source ownership and diagram revision. A valid reference does not prove that the model's judgment is correct.
+- Diagram snapshots preserve scene elements, not embedded image files. Continuous screen sharing, video recording, public hosting, and multi-user accounts are not implemented.
+- The production frontend build currently reports large Excalidraw-related chunks.
+
+## Existing checks
+
+These commands are available for contributors; the release preparation does not claim additional testing beyond the previously recorded checks.
 
 ```bash
-npm run build
+cd frontend
+npm test
 npm run lint
+npm run build
 ```
-
-To check connection failure handling, stop the backend with **Ctrl+C** and click **Check backend**. The page should display **Could not reach the backend**. Restart the backend and click again to see **Backend status: ok**.
-
-### Test the Codex interview WebSocket
-
-React automatically opens `ws://127.0.0.1:8000/interviews/<interview_id>/ws` after connecting the interviewer. Its conversation panel appends streamed text to the current response and preserves earlier questions and answers. A separate WebSocket client can test the same protocol, but only one socket may use an interview at a time.
-
-The socket automatically sends the CI/CD scenario to Codex. It emits JSON messages:
-
-| Type | Meaning |
-| --- | --- |
-| `delta` | Append the `text` field to the current interviewer response. |
-| `turn_completed` | The response finished successfully; the candidate may answer. |
-| `wrap_up_started` | Start a new interviewer message for the final recap. |
-| `session_finished` | The wrap-up succeeded and the server will close the socket normally. |
-| `error` | Read the `message` field. Empty or premature answers can be retried; model failures close the connection. |
-
-Send candidate answers as plain text, after `turn_completed`. Send `{"type":"finish"}` to request the wrap-up; duplicate finish requests do not generate extra recaps. Subsequent turns use the same Codex thread and distinct request IDs. A model response has a 60-second deadline.
-
-An unexpected disconnect also ends the interview and stops Codex, but cannot produce a wrap-up after the client is gone. Reconnecting to a finished session is not supported; use New interview. `POST /interviews/<interview_id>/finish` discards a session during recovery without requesting a recap. Reloading the backend clears in-memory sessions. Actual model responses, including the recap, consume the signed-in account's usage allowance.
-
-The wrap-up uses the CI/CD rubric in `backend/scenarios.py`: requirements, builds/tests/artifacts, security, deployment, recovery, observability, and communication. It should identify demonstrated strengths, specific improvements, and one practice exercise; uncovered topics are not assessed. Numerical scores and durable feedback storage are outside this milestone. Model behavior still requires evaluation against real interview examples.
-
-### Verify the backend bridge
-
-From `backend/`, run:
 
 ```bash
-uv run python -m unittest discover -s tests -v
+cd backend
+uv run python -m unittest discover -s tests
 ```
 
-These tests use simulated Codex events and in-process WebSocket connections. They check session creation/start/finish, retries, validation, multiple turns, overlapping input, rejected sessions, failures, timeouts, cancellation, shutdown, wrap-up, and disconnect cleanup without making live model requests.
+The last recorded frontend refactor checks passed 14 frontend tests, 76 backend tests, lint, and the production build. The Node tests mock audio/fetch boundaries and do not replace live browser or real-model evaluation.
 
-### Milestone 3 live acceptance
-
-1. Create an interview, connect it, and answer at least three questions about your CI/CD design.
-2. Confirm earlier questions and answers stay visible and Send answer is disabled during generation.
-3. Select End interview. Expect a Wrap-up entry, then Session finished with the conversation still visible.
-4. Select New interview, connect, and confirm a new conversation starts without the previous history.
-5. If the backend restarts or an interview fails, use New interview to recover. A failed setup should not leave the UI stuck in Connecting.
-
-The existing live text flow was confirmed locally by Joshua. The latest wrap-up and fresh-session behavior still need this acceptance check; the assistant has verified those paths with simulated model responses and build/lint checks.
+See [PLAN.md](PLAN.md) for completed milestones and deferred work, and [RELEASE_NOTES.md](RELEASE_NOTES.md) for the first preview release notes.
